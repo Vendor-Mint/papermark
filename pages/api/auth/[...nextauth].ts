@@ -54,21 +54,24 @@ export const authOptions: NextAuthOptions = {
     }),
     EmailProvider({
       async sendVerificationRequest({ identifier, url }) {
-        if (process.env.NODE_ENV === "development") {
-          const checksum = generateChecksum(url);
-          const verificationUrlParams = new URLSearchParams({
-            verification_url: url,
-            checksum,
-          });
-          const verificationUrl = `${process.env.NEXTAUTH_URL}/verify?${verificationUrlParams}`;
-          console.log("[Login URL]", verificationUrl);
-          return;
-        } else {
-          await sendVerificationRequestEmail({
-            url,
-            email: identifier,
-          });
-        }
+        // Check actual NODE_ENV value
+        const isDev = process.env.NODE_ENV !== "production";
+        
+        // if (isDev) {
+        //   const checksum = generateChecksum(url);
+        //   const verificationUrlParams = new URLSearchParams({
+        //     verification_url: url,
+        //     checksum,
+        //   });
+        //   const verificationUrl = `${process.env.NEXTAUTH_URL}/verify?${verificationUrlParams}`;
+        //   console.log("[Login URL]", verificationUrl);
+        //   return;
+        // }
+        
+        await sendVerificationRequestEmail({
+          url,
+          email: identifier,
+        });
       },
     }),
     PasskeyProvider({

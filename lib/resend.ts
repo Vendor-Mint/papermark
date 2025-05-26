@@ -46,14 +46,14 @@ export const sendEmail = async ({
   const fromAddress =
     from ??
     (marketing
-      ? "Marc from Papermark <marc@ship.papermark.io>"
+      ? `Papermark <${process.env.EMAIL_FROM}>`
       : system
-        ? "Papermark <system@papermark.io>"
+        ? `Papermark <${process.env.EMAIL_FROM}>`
         : verify
-          ? "Papermark <system@verify.papermark.io>"
+          ? `Papermark <${process.env.EMAIL_FROM}>`
           : !!scheduledAt
-            ? "Marc Seitz <marc@papermark.io>"
-            : "Marc from Papermark <marc@papermark.io>");
+            ? `Papermark <${process.env.EMAIL_FROM}>`
+            : `Papermark <${process.env.EMAIL_FROM}>`);
 
   try {
     const { data, error } = await resend.emails.send({

@@ -22,7 +22,8 @@ export const sendVerificationRequestEmail = async (params: {
       to: email as string,
       subject: "Welcome to Papermark!",
       react: emailTemplate,
-      test: process.env.NODE_ENV === "development",
+      from: `Papermark <${process.env.EMAIL_FROM}>`,
+      verify: true
     });
   } catch (e) {
     console.error(e);
