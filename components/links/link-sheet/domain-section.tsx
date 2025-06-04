@@ -44,14 +44,15 @@ export default function DomainSection({
   const [displayValue, setDisplayValue] = useState<string>("papermark.com");
   const teamInfo = useTeam();
   const { limits } = useLimits();
+  const isSelfHosted = process.env.NEXT_PUBLIC_IS_SELF_HOSTED === "true";
 
   const { isBusiness, isDatarooms, isDataroomsPlus } = usePlan();
 
   // Check plan eligibility for custom domains
   const canUseCustomDomainForDocument =
-    isBusiness || (limits && limits.customDomainOnPro);
+    isSelfHosted || isBusiness || (limits && limits.customDomainOnPro);
   const canUseCustomDomainForDataroom =
-    isDatarooms || isDataroomsPlus || (limits && limits.customDomainInDataroom);
+    isSelfHosted || isDatarooms || isDataroomsPlus || (limits && limits.customDomainInDataroom);
 
   // Check if we're editing a link with a custom domain
   const isEditingCustomDomain =
@@ -74,10 +75,11 @@ export default function DomainSection({
 
     // Check if this is a custom domain selection (not papermark.com)
     if (value !== "papermark.com") {
-      // Show upgrade modal if user doesn't have the right plan
+      // Show upgrade modal if user doesn't have the right plan and not self-hosted
       if (
-        (linkType === "DOCUMENT_LINK" && !canUseCustomDomainForDocument) ||
-        (linkType === "DATAROOM_LINK" && !canUseCustomDomainForDataroom)
+        !isSelfHosted && 
+        ((linkType === "DOCUMENT_LINK" && !canUseCustomDomainForDocument) ||
+        (linkType === "DATAROOM_LINK" && !canUseCustomDomainForDataroom))
       ) {
         setUpgradeModalOpen(true);
         setData({ ...data, domain: "papermark.com" });

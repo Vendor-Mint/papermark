@@ -128,8 +128,9 @@ export async function getTeamWithDomain({
     throw new TeamError("You are not a member of the team");
   }
 
-  // check if the team has a paid plan
-  const teamHasPaidPlan = team?.plan !== "free";
+  // check if the team has a paid plan or is self-hosted
+  const isSelfHosted = process.env.NEXT_PUBLIC_IS_SELF_HOSTED === "true";
+  const teamHasPaidPlan = team?.plan !== "free" || isSelfHosted;
   if (!teamHasPaidPlan) {
     throw new TeamError("Team doesn't have a paid plan");
   }

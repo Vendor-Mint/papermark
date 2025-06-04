@@ -9,9 +9,9 @@
     "seed": "ts-node --transpile-only prisma/seed.ts"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3006",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3006",
     "lint": "next lint",
     "postinstall": "prisma generate",
     "vercel-build": "prisma migrate deploy && next build",

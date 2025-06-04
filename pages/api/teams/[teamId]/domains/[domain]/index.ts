@@ -3,7 +3,7 @@ import { NextApiRequest, NextApiResponse } from "next";
 import { authOptions } from "@/pages/api//auth/[...nextauth]";
 import { getServerSession } from "next-auth/next";
 
-import { getApexDomain, removeDomainFromVercel } from "@/lib/domains";
+import { getApexDomain } from "@/lib/domains";
 import { errorhandler } from "@/lib/errorHandler";
 import prisma from "@/lib/prisma";
 import { getTeamWithDomain } from "@/lib/team/helper";
@@ -37,33 +37,18 @@ export default async function handle(
         domain,
       });
 
-      // calculate the domainCount
-      const apexDomain = getApexDomain(`https://${domain}`);
-      const domainCount = await prisma.domain.count({
+      if (!domainToBeDeleted) {
+        return res.status(404).json({ error: "Domain not found" });
+      }
+
+      // Delete the domain from the database
+      await prisma.domain.delete({
         where: {
-          OR: [
-            {
-              slug: apexDomain,
-            },
-            {
-              slug: {
-                endsWith: `.${apexDomain}`,
-              },
-            },
-          ],
+          id: domainToBeDeleted.id,
         },
       });
 
-      await Promise.allSettled([
-        removeDomainFromVercel(domain, domainCount),
-        prisma.domain.delete({
-          where: {
-            id: domainToBeDeleted?.id,
-          },
-        }),
-      ]);
-
-      return res.status(204).end(); // 204 No Content response for successful deletes
+      return res.status(204).end();
     } catch (error) {
       log({
         message: `Failed to delete domain: _${domain}_. \n\n ${error} \n\n*Metadata*: \`{teamId: ${teamId}, userId: ${userId}}\``,

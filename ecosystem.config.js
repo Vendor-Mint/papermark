@@ -6,7 +6,7 @@ module.exports = {
       args: 'run dev',
       env: {
         NODE_ENV: 'development',
-        PORT: 3000
+        PORT: 3006
       },
       watch: true,
       autorestart: true,

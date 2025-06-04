@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from "next";
 
 import { getServerSession } from "next-auth/next";
 
-import { addDomainToVercel, validDomainRegex } from "@/lib/domains";
+import { addDomain, validDomainRegex } from "@/lib/domains";
 import { errorhandler } from "@/lib/errorHandler";
 import prisma from "@/lib/prisma";
 import { getTeamWithDomain } from "@/lib/team/helper";
@@ -10,6 +10,17 @@ import { CustomUser } from "@/lib/types";
 import { log } from "@/lib/utils";
 
 import { authOptions } from "../../../auth/[...nextauth]";
+
+async function verifyDomainDNS(domain: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${process.env.NEXTAUTH_URL}/api/domains/verify?domain=${encodeURIComponent(domain)}`);
+    const data = await response.json();
+    return data.verified;
+  } catch (error) {
+    console.error('Error verifying domain:', error);
+    return false;
+  }
+}
 
 export default async function handle(
   req: NextApiRequest,
@@ -42,7 +53,23 @@ export default async function handle(
         },
       });
 
-      const domains = team.domains;
+      // Verify all domains
+      const domains = await Promise.all(
+        team.domains.map(async (domain: any) => {
+          if (!domain.verified) {
+            const isVerified = await verifyDomainDNS(domain.slug);
+            if (isVerified) {
+              await prisma.domain.update({
+                where: { id: domain.id },
+                data: { verified: true }
+              });
+              domain.verified = true;
+            }
+          }
+          return domain;
+        })
+      );
+
       return res.status(200).json(domains);
     } catch (error) {
       errorhandler(error, res);
@@ -78,10 +105,9 @@ export default async function handle(
         .replace(/^(?:https?:\/\/)?(?:www\.)?/i, "")
         .split("/")[0];
 
-      // Check if domain is valid
-      const validDomain = validDomainRegex.test(sanitizedDomain);
-      if (validDomain !== true) {
-        return res.status(422).json("Invalid domain");
+      // Validate domain format
+      if (!validDomainRegex.test(sanitizedDomain)) {
+        return res.status(422).json({ message: "Invalid domain format" });
       }
 
       // Check if domain contains papermark
@@ -102,14 +128,21 @@ export default async function handle(
         return res.status(400).json({ message: "Domain already exists" });
       }
 
+      // Try to verify the domain first
+      const isVerified = await verifyDomainDNS(sanitizedDomain);
+
+      // Create domain record
       const response = await prisma.domain.create({
         data: {
           slug: sanitizedDomain,
           userId,
           teamId,
+          verified: isVerified,
         },
       });
-      await addDomainToVercel(sanitizedDomain);
+
+      // Add domain to DNS verification system
+      await addDomain(sanitizedDomain);
 
       return res.status(201).json(response);
     } catch (error) {

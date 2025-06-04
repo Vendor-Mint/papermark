@@ -44,6 +44,8 @@ export function AddDomainModal({
   const { isFree, isPro, isBusiness } = usePlan();
   const { limits } = useLimits();
   const analytics = useAnalytics();
+  const isSelfHosted = process.env.NEXT_PUBLIC_IS_SELF_HOSTED === "true";
+  
   const addDomainSchema = z.object({
     name: z
       .string()
@@ -102,17 +104,18 @@ export function AddDomainModal({
     !onAddition && window.open("/settings/domains", "_blank");
   };
 
-  // If the team is
+  // If not self-hosted and the team is
   // - on a free plan
   // - on pro plan and has custom domain on pro plan disabled
   // - on business plan and has custom domain in dataroom disabled
   // => then show the upgrade modal
   if (
-    isFree ||
+    !isSelfHosted && 
+    (isFree ||
     (isPro && !limits?.customDomainOnPro) ||
     (linkType === "DATAROOM_LINK" &&
       isBusiness &&
-      !limits?.customDomainInDataroom)
+      !limits?.customDomainInDataroom))
   ) {
     if (children) {
       return (

@@ -1,15 +1,10 @@
 import { NextApiRequest, NextApiResponse } from "next";
-
-import { waitUntil } from "@vercel/functions";
-
-import { trackAnalytics } from "@/lib/analytics";
-import {
-  getConfigResponse,
-  getDomainResponse,
-  verifyDomain,
-} from "@/lib/domains";
+import { getServerSession } from "next-auth/next";
+import { getApexDomain } from "@/lib/domains";
 import prisma from "@/lib/prisma";
 import { DomainVerificationStatusProps } from "@/lib/types";
+import { log } from "@/lib/utils";
+import { authOptions } from "../../../../auth/[...nextauth]";
 
 export default async function handle(
   req: NextApiRequest,
@@ -17,104 +12,128 @@ export default async function handle(
 ) {
   // GET /api/teams/:teamId/domains/[domain]/verify - get domain verification status
   if (req.method === "GET") {
+    const session = await getServerSession(req, res, authOptions);
+    if (!session) {
+      return res.status(401).end("Unauthorized");
+    }
+
     const { domain } = req.query as { domain: string };
     let status: DomainVerificationStatusProps = "Valid Configuration";
 
-    const [domainJson, configJson] = await Promise.all([
-      getDomainResponse(domain),
-      getConfigResponse(domain),
-    ]);
+    try {
+      // Call our domain verification API
+      const verifyResponse = await fetch(
+        `${process.env.NEXTAUTH_URL}/api/domains/verify?domain=${encodeURIComponent(domain)}&checkOwnership=true`
+      );
+      const verifyData = await verifyResponse.json();
 
-    if (domainJson?.error?.code === "not_found") {
-      // domain not found on Vercel project
-      status = "Domain Not Found";
-      return res.status(200).json({
-        status,
-        response: { domainJson, configJson },
-      });
-      // unknown error
-    } else if (domainJson.error) {
-      status = "Unknown Error";
-      return res.status(200).json({
-        status,
-        response: { domainJson, configJson },
-      });
-    }
-
-    /**
-     * Domain has DNS conflicts
-     */
-    if (configJson?.conflicts.length > 0) {
-      status = "Conflicting DNS Records";
-      return res.status(200).json({
-        status,
-        response: { domainJson, configJson },
-      });
-    }
-
-    /**
-     * If domain is not verified, we try to verify now
-     */
-    if (!domainJson.verified) {
-      status = "Pending Verification";
-      const verificationJson = await verifyDomain(domain);
-
-      // domain was just verified
-      if (verificationJson && verificationJson.verified) {
-        status = "Valid Configuration";
-      }
-
-      return res.status(200).json({
-        status,
-        response: { domainJson, configJson },
-      });
-    }
-
-    if (!configJson.misconfigured) {
-      status = "Valid Configuration";
+      // Get current domain status from database
       const currentDomain = await prisma.domain.findUnique({
-        where: {
-          slug: domain,
-        },
-        select: {
-          verified: true,
-        },
+        where: { slug: domain },
+        select: { verified: true },
       });
 
-      const updatedDomain = await prisma.domain.update({
-        where: {
-          slug: domain,
-        },
-        data: {
-          verified: true,
-          lastChecked: new Date(),
-        },
-        select: {
-          userId: true,
-          verified: true,
-        },
-      });
-
-      if (!currentDomain!.verified && updatedDomain.verified) {
-        waitUntil(trackAnalytics({ event: "Domain Verified", slug: domain }));
+      if (!currentDomain) {
+        return res.status(404).json({
+          status: "Domain Not Found",
+          response: {
+            domainJson: { error: { code: "not_found", message: "Domain not found" } },
+            configJson: { misconfigured: true, conflicts: [] }
+          }
+        });
       }
-    } else {
-      status = "Invalid Configuration";
-      await prisma.domain.update({
-        where: {
-          slug: domain,
-        },
-        data: {
-          verified: false,
-          lastChecked: new Date(),
-        },
+
+      if (!verifyData.verified) {
+        status = "Pending Verification";
+        
+        // Update domain status in database
+        await prisma.domain.update({
+          where: { slug: domain },
+          data: { 
+            verified: false,
+            lastChecked: new Date()
+          }
+        });
+
+        return res.status(200).json({
+          status,
+          response: {
+            domainJson: {
+              name: domain,
+              apexName: getApexDomain(domain),
+              verified: false,
+              verification: [{
+                type: "TXT",
+                domain: domain,
+                value: verifyData.verificationToken,
+                reason: "Domain ownership verification required"
+              }],
+              error: {
+                code: "pending_verification",
+                message: verifyData.error || "Domain verification pending"
+              }
+            },
+            configJson: {
+              misconfigured: true,
+              conflicts: [],
+              acceptedChallenges: ["dns-01"]
+            }
+          }
+        });
+      }
+
+      // Domain is verified
+      if (!currentDomain.verified) {
+        await prisma.domain.update({
+          where: { slug: domain },
+          data: { 
+            verified: true,
+            lastChecked: new Date()
+          }
+        });
+      }
+
+      return res.status(200).json({
+        status: "Valid Configuration",
+        response: {
+          domainJson: {
+            name: domain,
+            apexName: getApexDomain(domain),
+            verified: true,
+            verification: [],
+            error: { code: "verified", message: "Domain verified" }
+          },
+          configJson: {
+            misconfigured: false,
+            conflicts: [],
+            acceptedChallenges: ["dns-01"]
+          }
+        }
+      });
+
+    } catch (error) {
+      log({
+        message: `Failed to verify domain: _${domain}_. \n\n ${error}`,
+        type: "error",
+        mention: true,
+      });
+
+      return res.status(200).json({
+        status: "Unknown Error",
+        response: {
+          domainJson: {
+            error: {
+              code: "verification_error",
+              message: error instanceof Error ? error.message : "Failed to verify domain"
+            }
+          },
+          configJson: {
+            misconfigured: true,
+            conflicts: []
+          }
+        }
       });
     }
-
-    return res.status(200).json({
-      status,
-      response: { domainJson, configJson },
-    });
   } else {
     res.setHeader("Allow", ["GET"]);
     return res.status(405).end(`Method ${req.method} Not Allowed`);

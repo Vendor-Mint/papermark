@@ -4,129 +4,109 @@ import {
   DomainVerificationResponse,
 } from "@/lib/types";
 
-export const addDomainToVercel = async (domain: string) => {
-  return await fetch(
-    `https://api.vercel.com/v9/projects/${process.env.PROJECT_ID_VERCEL}/domains?teamId=${process.env.TEAM_ID_VERCEL}`,
-    {
-      body: `{\n  "name": "${domain}"\n}`,
-      headers: {
-        Authorization: `Bearer ${process.env.AUTH_BEARER_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      method: "POST",
-    },
-  ).then((res) => res.json());
+export const validDomainRegex = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]$/;
+
+export const getApexDomain = (url: string): string => {
+  let domain;
+  try {
+    domain = new URL(url).hostname;
+  } catch (e) {
+    domain = url;
+  }
+  const parts = domain.split(".");
+  if (parts.length > 2) {
+    // Handle special cases like co.uk, com.br, etc.
+    if (parts[parts.length - 2].length <= 3 && parts[parts.length - 1].length <= 3) {
+      return parts.slice(-3).join(".");
+    }
+    return parts.slice(-2).join(".");
+  }
+  return domain;
 };
 
-export const removeDomainFromVercelProject = async (domain: string) => {
-  return await fetch(
-    `https://api.vercel.com/v9/projects/${process.env.PROJECT_ID_VERCEL}/domains/${domain}?teamId=${process.env.TEAM_ID_VERCEL}`,
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.AUTH_BEARER_TOKEN}`,
-      },
-      method: "DELETE",
-    },
-  ).then((res) => res.json());
+export const getSubdomain = (name: string, apexName: string): string | null => {
+  if (name === apexName) return null;
+  return name.slice(0, name.length - apexName.length - 1);
 };
 
-export const removeDomainFromVercelTeam = async (domain: string) => {
-  return await fetch(
-    `https://api.vercel.com/v6/domains/${domain}?teamId=${process.env.TEAM_ID_VERCEL}`,
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.AUTH_BEARER_TOKEN}`,
-      },
-      method: "DELETE",
-    },
-  ).then((res) => res.json());
-};
-
-export const removeDomainFromVercel = async (
-  domain: string,
-  domainCount: number,
-) => {
-  if (domainCount > 1) {
-    // the apex domain is being used by other domains
-    // so we should only remove it from our Vercel project
-    removeDomainFromVercelProject(domain);
-  } else {
-    // this is the only domain using this apex domain
-    // so we can remove it entirely from our Vercel team
-    removeDomainFromVercelProject(domain);
-    removeDomainFromVercelTeam(domain);
+export const addDomain = async (domain: string): Promise<{ success: boolean; verified?: boolean; error?: string }> => {
+  try {
+    // Make API call to verify domain
+    const response = await fetch(`/api/domains/verify?domain=${encodeURIComponent(domain)}`);
+    const data = await response.json();
+    
+    return { 
+      success: true,
+      verified: data.verified
+    };
+  } catch (error) {
+    console.error('Error adding domain:', error);
+    return { 
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
   }
 };
 
+export const removeDomain = async (domain: string): Promise<{ success: boolean }> => {
+  return { success: true };
+};
+
 export const getDomainResponse = async (
-  domain: string,
+  domain: string
 ): Promise<DomainResponse & { error: { code: string; message: string } }> => {
-  return await fetch(
-    `https://api.vercel.com/v9/projects/${process.env.PROJECT_ID_VERCEL}/domains/${domain.toLowerCase()}?teamId=${process.env.TEAM_ID_VERCEL}`,
-    {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${process.env.AUTH_BEARER_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-    },
-  ).then((res) => {
-    return res.json();
-  });
+  try {
+    // Make API call to verify domain
+    const response = await fetch(`/api/domains/verify?domain=${encodeURIComponent(domain)}`);
+    const data = await response.json();
+    const apexName = getApexDomain(domain);
+    
+    return {
+      name: domain,
+      apexName,
+      verified: data.verified,
+      verification: [],
+      projectId: 'self-hosted',
+      error: {
+        code: data.verified ? 'verified' : 'pending_verification',
+        message: data.verified ? 'Domain verified' : 'Domain verification pending'
+      }
+    };
+  } catch (error) {
+    return {
+      name: domain,
+      apexName: getApexDomain(domain),
+      verified: false,
+      verification: [],
+      projectId: 'self-hosted',
+      error: {
+        code: 'verification_failed',
+        message: error instanceof Error ? error.message : 'Domain verification failed'
+      }
+    };
+  }
 };
 
 export const getConfigResponse = async (
   domain: string,
 ): Promise<DomainConfigResponse> => {
-  return await fetch(
-    `https://api.vercel.com/v6/domains/${domain.toLowerCase()}/config?teamId=${process.env.TEAM_ID_VERCEL}`,
-    {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${process.env.AUTH_BEARER_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-    },
-  ).then((res) => res.json());
-};
-
-export const verifyDomain = async (
-  domain: string,
-): Promise<DomainVerificationResponse> => {
-  return await fetch(
-    `https://api.vercel.com/v9/projects/${process.env.PROJECT_ID_VERCEL}/domains/${domain.toLowerCase()}/verify?teamId=${process.env.TEAM_ID_VERCEL}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.AUTH_BEARER_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-    },
-  ).then((res) => res.json());
-};
-
-export const getSubdomain = (name: string, apexName: string) => {
-  if (name === apexName) return null;
-  return name.slice(0, name.length - apexName.length - 1);
-};
-
-export const getApexDomain = (url: string) => {
-  let domain;
-  try {
-    domain = new URL(url).hostname;
-  } catch (e) {
-    return "";
+  const isSelfHosted = process.env.NEXT_PUBLIC_IS_SELF_HOSTED === "true";
+  
+  // For self-hosted instances, return basic configuration
+  if (isSelfHosted) {
+    return {
+      configuredBy: "A",
+      acceptedChallenges: ["dns-01"],
+      misconfigured: false,
+      conflicts: []
+    };
   }
-  const parts = domain.split(".");
-  if (parts.length > 2) {
-    // if it's a subdomain (e.g. papermark.vercel.app), return the last 2 parts
-    return parts.slice(-2).join(".");
-  }
-  // if it's a normal domain (e.g. papermark.com), we return the domain
-  return domain;
-};
 
-// courtesy of ChatGPT: https://sharegpt.com/c/pUYXtRs
-export const validDomainRegex = new RegExp(
-  /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/,
-);
+  // For non-self-hosted, implement proper configuration check
+  return {
+    configuredBy: "A",
+    acceptedChallenges: ["dns-01"],
+    misconfigured: true,
+    conflicts: []
+  };
+};

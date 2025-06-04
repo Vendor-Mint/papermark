@@ -1,11 +1,8 @@
-import { Fragment, useState } from "react";
-
+import { Fragment, useState, useEffect } from "react";
 import { InfoIcon } from "lucide-react";
-
 import { getSubdomain } from "@/lib/domains";
 import { DomainVerificationStatusProps } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
 import { TabSelect } from "../ui/tab-select";
 
 export default function DomainConfiguration({
@@ -18,6 +15,104 @@ export default function DomainConfiguration({
   const { domainJson, configJson } = response;
   const subdomain = getSubdomain(domainJson.name, domainJson.apexName);
   const [recordType, setRecordType] = useState(!!subdomain ? "CNAME" : "A");
+  const [verificationToken, setVerificationToken] = useState<string | null>(null);
+  const isSelfHosted = process.env.NEXT_PUBLIC_IS_SELF_HOSTED === "true";
+
+  useEffect(() => {
+    // Fetch verification token when component mounts
+    async function getVerificationToken() {
+      try {
+        const response = await fetch(`/api/domains/verify?domain=${encodeURIComponent(domainJson.name)}&checkOwnership=true`);
+        const data = await response.json();
+        if (data.verificationToken) {
+          setVerificationToken(data.verificationToken);
+        }
+      } catch (error) {
+        console.error('Error fetching verification token:', error);
+      }
+    }
+    getVerificationToken();
+  }, [domainJson.name]);
+
+  if (isSelfHosted) {
+    return (
+      <div className="pt-2">
+        <div className="flex items-center space-x-2">
+          <TabSelect
+            options={[
+              { id: "CNAME", label: "Subdomain" },
+              { id: "A", label: "Apex Domain" },
+            ]}
+            selected={recordType}
+            onSelect={(option: string) => setRecordType(option)}
+          />
+        </div>
+
+        {/* Domain Ownership Verification */}
+        <div className="my-3 text-sm">
+          <p className="text-sm font-medium mb-2">
+            First, verify domain ownership by adding this TXT record:
+          </p>
+          <div className="bg-secondary/50 p-4 rounded-md mb-4">
+            <div className="flex justify-between items-center">
+              <div>
+                <p className="font-mono mb-1">Type: TXT</p>
+                <p className="font-mono mb-1">Name: @</p>
+                <p className="font-mono">Value: {verificationToken || "Loading..."}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* DNS Configuration */}
+        <div className="my-3 text-sm">
+          <p className="text-sm font-medium mb-2">
+            Then, set up the DNS record for routing:
+          </p>
+          {recordType === "CNAME" ? (
+            <>
+              <p className="text-sm font-medium mb-2">
+                Set the following CNAME record for your subdomain:
+              </p>
+              <div className="bg-secondary/50 p-4 rounded-md">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="font-mono mb-1">Type: CNAME</p>
+                    <p className="font-mono mb-1">Name: {subdomain || "@"}</p>
+                    <p className="font-mono">Value: {process.env.NEXT_PUBLIC_APP_HOSTNAME || window.location.hostname}</p>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium mb-2">
+                Set the following A record for your apex domain:
+              </p>
+              <div className="bg-secondary/50 p-4 rounded-md">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="font-mono mb-1">Type: A</p>
+                    <p className="font-mono mb-1">Name: @</p>
+                    <p className="font-mono">Value: {process.env.NEXT_PUBLIC_APP_IP || "Your server's public IP"}</p>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="rounded-md bg-blue-50 dark:bg-blue-900/50 p-3 mt-4">
+          <div className="flex items-center space-x-3">
+            <InfoIcon className="h-5 w-5 text-blue-400 flex-shrink-0" />
+            <p className="text-sm text-blue-700 dark:text-blue-400">
+              DNS changes can take up to 24 hours to propagate. Once propagated, your domain will be automatically verified.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (status === "Pending Verification") {
     const txtVerification = domainJson.verification.find(
@@ -121,7 +216,8 @@ export default function DomainConfiguration({
           {
             type: recordType,
             name: recordType === "A" ? "@" : (subdomain ?? "www"),
-            value: recordType === "A" ? `76.76.21.21` : `cname.vercel-dns.com`,
+            value:
+              recordType === "A" ? `76.76.21.21` : `cname.vercel-dns.com`,
             ttl: "86400",
           },
         ]}
